@@ -4,7 +4,7 @@ EdgeChat-LAN —— 局域网部署版聊天系统（极简版）
 去除全部 Telegram 联动 / Cloudflare Workers / D1/KV/R2 依赖，改为单机常驻进程 + SQLite。
 
 特性：
-- 免登录：打开页面即自动注册，浏览器指纹标识用户，用户名形如 "Windows Chrome笔记本"
+- 免登录：打开页面即自动注册，浏览器指纹标识用户，用户名形如 "Windows Chrome"
 - 无管理员体系：所有用户权限相同，任何人都可创建频道和发起私聊
 - 频道群聊 + 一对一私信（会话列表、未读数、@提及）
 - WebSocket 实时推送（protocolVersion:1，ready/message/message_deleted/room_message/presence/typing）
