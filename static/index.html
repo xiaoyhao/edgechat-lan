@@ -697,7 +697,7 @@
         <div class="navSec">私信</div>
         <div id="privateList"></div>
       </div>
-      <div class="meBar">
+      <div class="meBar" id="meBar" title="点击修改我的昵称" style="cursor:pointer">
         <div class="avatar" id="meAvatar">?</div>
         <div class="meta">
           <div id="meName" style="font-size:13px"></div>
@@ -831,7 +831,7 @@
         const d = await r.json();
         if (!r.ok) throw new Error(d.detail || '自动登录失败');
         TOKEN = d.token; localStorage.setItem('ec_token', TOKEN);
-        if (d.isNew) toast('已为你创建设备账号：' + d.user.displayName);
+        if (d.isNew) toast('已为你创建账号：' + d.user.displayName);
         await enterApp();
       } catch (e) {
         $('authMsg').textContent = '自动登录失败';
@@ -840,16 +840,29 @@
     }
 
     // ---------------------------------------------------------------- 进入应用
-    async function enterApp() {
-      const me = await api('/me');
-      ME = me.user;
-      $('authView').classList.add('hidden'); $('appView').classList.remove('hidden');
+    function renderMe() {
       $('meName').textContent = ME.displayName;
       $('meRole').textContent = '@' + ME.username;
       $('meAvatar').textContent = ME.displayName[0] || '?';
       $('meAvatar').style.background = ME.color || '#4f7cff';
+    }
+    async function enterApp() {
+      const me = await api('/me');
+      ME = me.user;
+      $('authView').classList.add('hidden'); $('appView').classList.remove('hidden');
+      renderMe();
       connectInbox();
       await Promise.all([loadRooms(), loadUsers()]);
+    }
+    async function editDisplayName() {
+      if (!ME) return;
+      const input = prompt('设置我的昵称（留空则恢复默认，显示用户名）：', ME.displayName === ME.username ? '' : ME.displayName);
+      if (input === null) return;
+      try {
+        const d = await api('/me', { method: 'PATCH', body: { displayName: input } });
+        ME = d.user; renderMe(); loadUsers();
+        toast('昵称已更新为：' + ME.displayName);
+      } catch (e) { toast(e.message); }
     }
     async function loadRooms() {
       const d = await api('/rooms'); ROOMS = d.rooms; renderRooms();
@@ -905,6 +918,11 @@
       if (f.type === 'message_unpinned' && kind === 'room') { unpinById(f.messageId); return; }
       if (f.type === 'typing' && kind === 'room') { showTyping(f.user); return; }
       if (f.type === 'presence') { loadUsers(); return; }
+      if (f.type === 'userUpdated' && f.user) {
+        if (ME && f.user.id === ME.id) { ME = f.user; renderMe(); }
+        loadUsers();
+        return;
+      }
       if (f.type === 'room_message') { loadRooms(); loadUsers(); }
       if (f.type === 'room_created') { toast('新频道已创建：' + (f.room && f.room.name)); loadRooms(); loadUsers(); }
     }
@@ -1011,6 +1029,7 @@
       try { const d = await api('/rooms', { method: 'POST', body: { kind: 'channel', name, topic } }); await loadRooms(); selectRoom(d.room); } catch (e) { toast(e.message); }
     }
     // ---------------------------------------------------------------- 启动
+    $('meBar').addEventListener('click', editDisplayName);
     autoLogin();
   </script>
 </body>

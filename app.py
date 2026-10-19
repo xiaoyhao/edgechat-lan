@@ -4,7 +4,8 @@ EdgeChat-LAN —— 局域网部署版聊天系统（极简版）
 去除全部 Telegram 联动 / Cloudflare Workers / D1/KV/R2 依赖，改为单机常驻进程 + SQLite。
 
 特性：
-- 免登录：打开页面即自动注册，浏览器指纹标识用户，用户名形如 "Windows Chrome"
+- 免登录：打开页面即自动注册，画布指纹生成用户名；同一账号可在多个浏览器/设备同时登录
+- 昵称（display_name）默认与 username 相同，用户可自行修改（点击左下角个人信息）
 - 无管理员体系：所有用户权限相同，任何人都可创建频道和发起私聊
 - 频道群聊 + 一对一私信（会话列表、未读数、@提及）
 - WebSocket 实时推送（protocolVersion:1，ready/message/message_deleted/room_message/presence/typing）
@@ -143,9 +144,9 @@ def db() -> sqlite3.Connection:
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  fingerprint TEXT UNIQUE NOT NULL,             -- 浏览器指纹哈希
-  username TEXT UNIQUE NOT NULL,                -- 自动生成：系统+设备
-  display_name TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,                    -- 浏览器指纹哈希（同一账号可在多个浏览器/设备同时登录，故不再唯一）
+  username TEXT UNIQUE NOT NULL,                -- 自动生成：画布指纹哈希
+  display_name TEXT NOT NULL DEFAULT '',        -- 昵称，默认跟随 username，可自行修改
   created_ip TEXT DEFAULT '',
   avatar_color TEXT DEFAULT '',
   created_at TEXT NOT NULL
@@ -220,6 +221,31 @@ def init_db():
                                "DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS rooms;")
             old_cols = []
         conn.executescript(SCHEMA)
+        # 迁移：允许同一账号在多个浏览器/设备同时登录 —— 去掉 fingerprint 的 UNIQUE 约束
+        if old_cols and "fingerprint" in old_cols:
+            fk_on = conn.execute("PRAGMA foreign_keys").fetchone()[0]
+            idx_info = conn.execute("PRAGMA index_list(users)").fetchall()
+            has_unique_fp = any(
+                i["unique"] and [c["name"] for c in conn.execute(f"PRAGMA index_info({i['name']})").fetchall()] == ["fingerprint"]
+                for i in idx_info)
+            if has_unique_fp:
+                conn.execute("PRAGMA foreign_keys=OFF")
+                conn.executescript(
+                    "BEGIN;"
+                    "CREATE TABLE users_new(\n"
+                    "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                    "  fingerprint TEXT NOT NULL,\n"
+                    "  username TEXT UNIQUE NOT NULL,\n"
+                    "  display_name TEXT NOT NULL DEFAULT '',\n"
+                    "  created_ip TEXT DEFAULT '',\n"
+                    "  avatar_color TEXT DEFAULT '',\n"
+                    "  created_at TEXT NOT NULL\n"
+                    ");\n"
+                    "INSERT INTO users_new SELECT id, fingerprint, username, display_name, created_ip, avatar_color, created_at FROM users;\n"
+                    "DROP TABLE users;\n"
+                    "ALTER TABLE users_new RENAME TO users;\n"
+                    "COMMIT;")
+                conn.execute(f"PRAGMA foreign_keys={'ON' if fk_on else 'OFF'}")
         if not conn.execute("SELECT 1 FROM rooms LIMIT 1").fetchone():
             cur = conn.execute(
                 "INSERT INTO rooms(kind,name,topic,created_at) VALUES('channel','综合','局域网聊天默认频道',?)",
@@ -305,11 +331,12 @@ hub = Hub()
 
 # ------------------------------------------------------------------ 通用序列化
 def public_user(row: sqlite3.Row) -> dict:
+    display = row["display_name"] or row["username"]
     return {
         "kind": "local",
         "id": row["id"],
         "username": row["username"],
-        "displayName": row["display_name"],
+        "displayName": display,
         "avatarUrl": "",
         "color": row["avatar_color"],
         "source": "edgechat-lan",
@@ -436,32 +463,35 @@ def guess_device(ua: str) -> tuple[str, str]:
 
 @app.post("/api/v1/auth/auto-login")
 async def auto_login(request: Request):
-    """免密自动注册/登录：以浏览器指纹定位用户，首次访问自动建号。"""
+    """免密自动注册/登录：以画布指纹(username)定位账号，同一账号可在多个浏览器/设备同时登录。"""
     body = await request.json()
     fp = (body.get("fingerprint") or "").strip()
     canvas_fp = (body.get("canvasFp") or "").strip()
     ua = body.get("userAgent") or request.headers.get("user-agent", "")
     if not re.fullmatch(r"[A-Za-z0-9_\-]{8,64}", fp):
         raise HTTPException(400, "缺少有效的浏览器指纹")
-    os_name, browser = guess_device(ua)
     ip = request.client.host if request.client else ""
+    # username 使用画布指纹哈希（canvas.toDataURL() -> hash），缺失时回落设备指纹哈希
+    username = canvas_fp if re.fullmatch(r"[A-Za-z0-9_\-]{8,64}", canvas_fp) else fp
     with _db_lock, db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE fingerprint=?", (fp,)).fetchone()
+        # 先按 username 找账号：换浏览器/设备（fp 变化）也视为同一用户，支持同时登录
+        row = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         is_new = row is None
         if is_new:
-            display_name = f"{os_name} {browser}"
-            # username 使用画布指纹哈希（canvas.toDataURL() -> hash），缺失时回落设备指纹哈希
-            username = canvas_fp if re.fullmatch(r"[A-Za-z0-9_\-]{8,64}", canvas_fp) else fp
             cur = conn.execute(
                 "INSERT INTO users(fingerprint,username,display_name,created_ip,avatar_color,created_at) "
                 "VALUES(?,?,?,?,?,?)",
-                (fp, username, display_name, ip, random_color(), now_iso()))
+                (fp, username, "", ip, random_color(), now_iso()))
             uid = cur.lastrowid
             row = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
             # 新成员自动加入所有频道
             for w in conn.execute("SELECT id FROM rooms WHERE kind='channel'").fetchall():
                 conn.execute("INSERT OR IGNORE INTO room_members(room_id,user_id,joined_at) VALUES(?,?,?)",
                              (w["id"], uid, now_iso()))
+        elif row["fingerprint"] != fp:
+            # 老版本遗留数据：同一 username 但旧 fingerprint 记录不同，更新为当前设备的指纹
+            conn.execute("UPDATE users SET fingerprint=? WHERE id=?", (fp, row["id"]))
+            row = conn.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
         token = secrets.token_urlsafe(32)
         conn.execute("INSERT INTO sessions(token,user_id,created_at,expires_at) VALUES(?,?,?,?)",
                      (token, row["id"], now_iso(),
@@ -473,6 +503,26 @@ async def auto_login(request: Request):
 async def me(request: Request):
     u = require_user(request)
     return {"user": public_user(u)}
+
+
+@app.patch("/api/v1/me")
+async def update_me(request: Request):
+    """修改自己的昵称（display_name）。传空字符串则恢复默认（显示 username）。"""
+    u = require_user(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "请求体必须为 JSON")
+    name = str(body.get("displayName") or "").strip()
+    if len(name) > 32:
+        raise HTTPException(400, "昵称最长 32 个字符")
+    with _db_lock, db() as conn:
+        conn.execute("UPDATE users SET display_name=? WHERE id=?", (name, u["id"]))
+        row = conn.execute("SELECT * FROM users WHERE id=?", (u["id"],)).fetchone()
+    # 通知所有在线会话：该用户昵称已变更
+    payload = public_user(row)
+    await hub.broadcast({"type": "userUpdated", "user": payload})
+    return {"user": payload}
 
 
 @app.post("/api/v1/auth/logout")
