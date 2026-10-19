@@ -26,6 +26,8 @@ import re
 import secrets
 import sqlite3
 import sys
+import socket
+import uvicorn
 import threading
 import time
 import uuid
@@ -829,13 +831,47 @@ async def realtime(ws: WebSocket):
 async def index():
     return (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
 
+# ------------------------------------------------------------------ 
+def get_all_local_ips():
+    """获取本机所有有效的局域网 IPv4 地址（纯标准库实现）"""
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        hostname = socket.gethostname()
+        _, _, host_ips = socket.gethostbyname_ex(hostname)
+        for ip in host_ips:
+            if not ip.startswith("127.") and not ip.startswith("169.254."):
+                ips.add(ip)
+    except Exception:
+        pass
+    valid_ips = [ip for ip in ips if ip.count('.') == 3]
+    valid_ips.sort(key=lambda x: (not x.startswith('192.168.'), not x.startswith('10.'), x))
+    return valid_ips
 
 if __name__ == "__main__":
     init_db()
+    local_ips = get_all_local_ips()
     sys.stdout.write("=" * 60 + "\n")
-    sys.stdout.write("EdgeChat-LAN 启动: http://%s:%s  (局域网内其他设备用本机 IP 访问)\n" % (HOST, PORT))
-    sys.stdout.write("免登录模式：打开页面即自动注册，无需账号密码\n")
+    sys.stdout.write("🚀 EdgeChat-LAN 启动成功！\n")
+    sys.stdout.write("-" * 60 + "\n")
+    sys.stdout.write(f"📱 本机访问:  http://localhost:{PORT}  或  http://127.0.0.1:{PORT}\n")
+    if not local_ips:
+        sys.stdout.write("🌐 局域网访问: 未检测到有效的局域网 IP\n")
+    elif len(local_ips) == 1:
+        sys.stdout.write(f"🌐 局域网访问: http://{local_ips[0]}:{PORT}\n")
+    else:
+        sys.stdout.write("🌐 局域网访问 (其他设备任选以下一个地址):\n")
+        for ip in local_ips:
+            sys.stdout.write(f"   • http://{ip}:{PORT}\n")
+    sys.stdout.write(f"⚙️  服务监听:  {HOST}:{PORT}  (0.0.0.0 表示接受所有网络接口的请求)\n")
+    sys.stdout.write("-" * 60 + "\n")
+    sys.stdout.write("💡 免登录模式：打开页面即自动注册，无需账号密码\n")
     sys.stdout.write("=" * 60 + "\n")
     sys.stdout.flush()
-    import uvicorn
     uvicorn.run(app, host=HOST, port=PORT)
