@@ -783,7 +783,7 @@
         ctx.fillText('Fingerprint👆', 2, 15);
         ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
         ctx.fillText('Fingerprint👆', 4, 17);
-        return hash(canvas.toDataURL());
+        return canvas.toDataURL();
       } catch (e) { return ''; }
     }
     async function sha256hex(s) {
@@ -968,13 +968,25 @@
     function showTyping(u) { $('typingHint').textContent = `${u.displayName} 正在输入…`; clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typingHint').textContent = '', 3500); }
 
     // ---------------------------------------------------------------- 发送
+    // crypto.randomUUID() 仅在安全上下文(HTTPS/localhost)可用；
+    // 手机通过 http://192.168.x.x 访问时不存在，这里提供降级方案
+    function genId() {
+      if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+      if (window.crypto && typeof crypto.getRandomValues === 'function') {
+        const b = new Uint8Array(16); crypto.getRandomValues(b);
+        b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+        const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+        return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+      }
+      return Date.now().toString(16) + '-' + Math.random().toString(16).slice(2, 10) + '-' + Math.random().toString(16).slice(2, 10);
+    }
     function setReply(id, text) { replyTo = id; $('replyBox').classList.remove('hidden'); $('replyText').textContent = '回复: ' + text; }
     function cancelReply() { replyTo = null; $('replyBox').classList.add('hidden'); }
     async function sendMessage() {
       const inp = $('msgInput'); const text = inp.value.trim(); if (!text || !CUR) return;
       inp.value = '';
       try {
-        const d = await api(`/rooms/${CUR.id}/messages`, { method: 'POST', body: { content: text, clientMessageId: crypto.randomUUID(), replyToMessageId: replyTo || 0 } });
+        const d = await api(`/rooms/${CUR.id}/messages`, { method: 'POST', body: { content: text, clientMessageId: genId(), replyToMessageId: replyTo || 0 } });
         upsertMessage(d.message); cancelReply(); markRead(CUR);
       } catch (e) { toast(e.message); }
     }
@@ -983,7 +995,7 @@
       const fd = new FormData(); fd.append('file', f);
       try {
         const up = await api('/uploads', { method: 'POST', body: fd });
-        const d = await api(`/rooms/${CUR.id}/messages`, { method: 'POST', body: { content: '', type: up.file.type, fileId: up.file.id, clientMessageId: crypto.randomUUID() } });
+        const d = await api(`/rooms/${CUR.id}/messages`, { method: 'POST', body: { content: '', type: up.file.type, fileId: up.file.id, clientMessageId: genId() } });
         upsertMessage(d.message); loadRooms();
       } catch (e) { toast(e.message); }
     }
