@@ -241,7 +241,7 @@ function addPin(m, quiet) { if (!pins.some(p => p.id === m.id)) { pins = [m, ...
 function unpinById(id) { pins = pins.filter(p => p.id !== id); renderPins(); }
 function renderPins() { const b = $('pinnedBar'); if (!pins.length) { b.classList.add('hidden'); return; } b.classList.remove('hidden'); b.innerHTML = '📌 ' + pins.map(p => `<a style="color:#8ab4ff;cursor:pointer" onclick="jumpTo(${p.id})">${esc((p.content || '[文件]').slice(0, 30))}</a>`).join(' &nbsp;·&nbsp; '); }
 let typingTimer = null;
-function showTyping(u) { $('typingHint').textContent = `${u.displayName} 正在输入…`; clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typingHint').textContent = '', 2500); }
+function showTyping(u) { $('typingHint').textContent = `${u.displayName} 正在输入…`; clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typingHint').textContent = '', 2000); }
 
 // ---------------------------------------------------------------- 发送
 // crypto.randomUUID() 仅在安全上下文(HTTPS/localhost)可用；
