@@ -129,8 +129,8 @@ function renderRooms() {
      <div class="avatar" style="background:${r.kind === 'channel' ? '#4f7cff' : '#7a5cff'}">${esc((r.name || '?')[0])}</div>
      <div class="meta"><div class="name">${esc(r.name)}</div><div class="prev">${esc(r.lastPreview || '')}</div></div>
      ${r.unreadCount ? `<span class="badge">${r.unreadCount}</span>` : ''}</div>`;
-  $('channelList').innerHTML = ROOMS.filter(r => r.kind === 'channel').map(mk).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 8px">暂无频道</div>';
-  $('privateList').innerHTML = ROOMS.filter(r => r.kind === 'private').map(mk).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 8px">暂无私信</div>';
+  $('channelList').innerHTML = ROOMS.filter(r => r.kind === 'channel').map(mk).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 8px">暂无</div>';
+  $('privateList').innerHTML = ROOMS.filter(r => r.kind === 'private').map(mk).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 8px">暂无</div>';
 }
 async function loadUsers() {
   const d = await api('/users'); USERS = d.users;
@@ -241,7 +241,7 @@ function addPin(m, quiet) { if (!pins.some(p => p.id === m.id)) { pins = [m, ...
 function unpinById(id) { pins = pins.filter(p => p.id !== id); renderPins(); }
 function renderPins() { const b = $('pinnedBar'); if (!pins.length) { b.classList.add('hidden'); return; } b.classList.remove('hidden'); b.innerHTML = '📌 ' + pins.map(p => `<a style="color:#8ab4ff;cursor:pointer" onclick="jumpTo(${p.id})">${esc((p.content || '[文件]').slice(0, 30))}</a>`).join(' &nbsp;·&nbsp; '); }
 let typingTimer = null;
-function showTyping(u) { $('typingHint').textContent = `${u.displayName} 正在输入…`; clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typingHint').textContent = '', 3500); }
+function showTyping(u) { $('typingHint').textContent = `${u.displayName} 正在输入…`; clearTimeout(typingTimer); typingTimer = setTimeout(() => $('typingHint').textContent = '', 2500); }
 
 // ---------------------------------------------------------------- 发送
 // crypto.randomUUID() 仅在安全上下文(HTTPS/localhost)可用；
