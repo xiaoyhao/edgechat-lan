@@ -51,7 +51,9 @@ PORT = int(os.environ.get("EDGECHAT_PORT", "8790"))
 MAX_UPLOAD_MB = int(os.environ.get("EDGECHAT_MAX_UPLOAD_MB", "50"))
 SESSION_TTL_DAYS = 365  # 指纹登录，token 长期有效
 
+from fastapi.staticfiles import StaticFiles
 app = FastAPI(title="EdgeChat-LAN", version="2.0.0")
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 # ------------------------------------------------------------------ 加密（AES-256-GCM via cryptography，缺失时回落 HMAC-CTR 方案）
 try:
